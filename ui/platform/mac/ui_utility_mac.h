@@ -36,6 +36,18 @@ inline bool WindowMarginsSupported() {
 inline void SetWindowMargins(not_null<QWidget*> widget, const QMargins &margins) {
 }
 
+inline bool GlassBackdropSupported() {
+	return false;
+}
+
+inline bool SetGlassBackdrop(
+		not_null<QWidget*> widget,
+		bool enabled,
+		bool dark,
+		int radius) {
+	return false;
+}
+
 inline void ShowWindowMenu(not_null<QWidget*> widget, const QPoint &point) {
 }
 

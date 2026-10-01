@@ -11,6 +11,7 @@
 #include "base/weak_qptr.h"
 #include "ui/image/image_prepare.h"
 #include "ui/platform/ui_platform_utility.h"
+#include "ui/style/style_core_palette.h"
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/menu/menu_item_base.h"
 #include "ui/widgets/scroll_area.h"
@@ -34,6 +35,37 @@ namespace Ui {
 namespace {
 
 constexpr auto kSubmenuAimDelay = crl::time(300);
+constexpr auto kGlassAlpha = uchar(0xB8);
+constexpr auto kGlassOverAlpha = uchar(0x50);
+
+bool GlassFlag = false;
+rpl::lifetime GlassLifetime;
+
+void ApplyGlassColors() {
+	const auto bgName = QLatin1String("menuGlassBg");
+	const auto overName = QLatin1String("menuGlassBgOver");
+	if (!GlassFlag) {
+		style::main_palette::setColor(bgName, QLatin1String("windowBg"));
+		style::main_palette::setColor(
+			overName,
+			QLatin1String("windowBgOver"));
+		return;
+	}
+	const auto bg = st::windowBg->c;
+	const auto over = st::windowBgOver->c;
+	style::main_palette::setColor(
+		bgName,
+		bg.red(),
+		bg.green(),
+		bg.blue(),
+		kGlassAlpha);
+	style::main_palette::setColor(
+		overName,
+		over.red(),
+		over.green(),
+		over.blue(),
+		kGlassOverAlpha);
+}
 
 [[nodiscard]] bool PointInTriangle(
 		QPoint point,
@@ -115,10 +147,11 @@ void PopupMenu::init() {
 
 	setupMenuWidget();
 
+	_glass = GlassFlag && Platform::TranslucentWindowsSupported();
 	setWindowFlags(Qt::WindowFlags(Qt::FramelessWindowHint)
 		| Qt::BypassWindowManagerHint
 		| Qt::Popup
-		| Qt::NoDropShadowWindowHint);
+		| (_glass ? Qt::WindowFlags() : Qt::NoDropShadowWindowHint));
 	setMouseTracking(true);
 
 	hide();
@@ -177,6 +210,38 @@ void PopupMenu::checkSubmenuShow() {
 	}
 }
 
+void PopupMenu::SetGlassEnabled(bool enabled) {
+	enabled = enabled && Platform::GlassBackdropSupported();
+	if (GlassFlag == enabled) {
+		return;
+	}
+	GlassFlag = enabled;
+	GlassLifetime.destroy();
+	if (enabled) {
+		style::PaletteChanged(
+		) | rpl::on_next([] {
+			ApplyGlassColors();
+		}, GlassLifetime);
+	}
+	ApplyGlassColors();
+}
+
+bool PopupMenu::GlassEnabled() {
+	return GlassFlag;
+}
+
+QMargins PopupMenu::shadowExtend() const {
+	return _glass ? QMargins() : _boxShadow.extend();
+}
+
+void PopupMenu::updateGlassBackdrop() {
+	if (!_glass) {
+		return;
+	}
+	const auto dark = (st::windowBg->c.lightnessF() < 0.5);
+	Platform::SetGlassBackdrop(this, true, dark, _st.radius);
+}
+
 void PopupMenu::validateCompositingSupport() {
 	const auto line = st::lineWidth;
 	const auto &additional = _additionalMenuPadding;
@@ -188,7 +253,7 @@ void PopupMenu::validateCompositingSupport() {
 			std::max(line, additional.bottom()));
 		_margins = QMargins();
 	} else {
-		const auto ext = _boxShadow.extend();
+		const auto ext = shadowExtend();
 		_padding = QMargins(
 			std::max(ext.left(), additional.left()),
 			std::max(ext.top(), additional.top()),
@@ -224,8 +289,16 @@ void PopupMenu::updateRoundingOverlay() {
 		auto p = QPainter(_roundingOverlay.data());
 		auto hq = PainterHighQualityEnabler(p);
 		p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
-		_roundRect.paint(p, _inner, RectPart::AllCorners);
-		if (!_grabbingForPanelAnimation) {
+		if (_glass) {
+			// The menu color is translucent here, and DestinationIn would
+			// scale everything, including the text, by its alpha.
+			p.setPen(Qt::NoPen);
+			p.setBrush(Qt::black);
+			p.drawRoundedRect(_inner, _st.radius, _st.radius);
+		} else {
+			_roundRect.paint(p, _inner, RectPart::AllCorners);
+		}
+		if (!_grabbingForPanelAnimation && !_glass) {
 			p.setCompositionMode(QPainter::CompositionMode_SourceOver);
 			_boxShadow.paint(p, _inner, _st.radius);
 		}
@@ -255,6 +328,9 @@ void PopupMenu::handleMenuResize() {
 		resize(newSize);
 	}
 	_inner = rect().marginsRemoved(_padding);
+	if (isVisible()) {
+		updateGlassBackdrop();
+	}
 }
 
 not_null<QAction*> PopupMenu::addAction(
@@ -534,7 +610,7 @@ void PopupMenu::popupSubmenu(
 	}
 	if (submenu) {
 		const auto padding = _useTransparency
-			? _boxShadow.extend()
+			? shadowExtend()
 			: QMargins(st::lineWidth, 0, st::lineWidth, 0);
 		QPoint p(_inner.x() + (style::RightToLeft() ? padding.right() : (_inner.width() - padding.left())), _inner.y() + actionTop);
 		_activeSubmenu = submenu;
@@ -823,8 +899,9 @@ void PopupMenu::showStarted() {
 }
 
 void PopupMenu::startShowAnimation() {
-	if (!_useTransparency) {
+	if (!_useTransparency || _glass) {
 		_a_show.stop();
+		updateGlassBackdrop();
 		update();
 		return;
 	}
@@ -1041,7 +1118,7 @@ bool PopupMenu::prepareGeometryFor(
 				|| *_forcedOrigin == Origin::BottomRight));
 	auto w = p - QPoint(
 		std::max(
-			_additionalMenuPadding.left() - _boxShadow.extend().left(),
+			_additionalMenuPadding.left() - shadowExtend().left(),
 			0),
 		_padding.top() - _topShift);
 	auto r = screen ? screen->availableGeometry() : QRect();
@@ -1098,7 +1175,7 @@ bool PopupMenu::prepareGeometryFor(
 				w.setX(w.x() + _margins.left() + _margins.right() - parentWidth - width() + _margins.left() + _margins.right());
 			} else {
 				w.setX(p.x() - width() + std::max(
-					_additionalMenuPadding.right() - _boxShadow.extend().right(),
+					_additionalMenuPadding.right() - shadowExtend().right(),
 					0));
 			}
 			origin = PanelAnimation::Origin::TopRight;

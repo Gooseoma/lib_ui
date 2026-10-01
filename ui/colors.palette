@@ -52,6 +52,8 @@ attentionButtonBgRipple: #f4c3c2; // default attention button ripple effect
 
 menuBg: windowBg; // default popup menu background
 menuBgOver: windowBgOver; // default popup menu item background with mouse over
+menuGlassBg: windowBg; // popup menu background, translucent when glass menus are enabled
+menuGlassBgOver: windowBgOver; // popup menu item background with mouse over, same
 menuBgRipple: windowBgRipple; // default popup menu item ripple effect
 menuIconFg: #999999; // default popup menu item icon (like main menu)
 menuIconFgOver: #8a8a8a; // default popup menu item icon with mouse over

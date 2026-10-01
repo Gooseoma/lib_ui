@@ -29,6 +29,14 @@ namespace Ui::Platform {
 
 [[nodiscard]] bool TranslucentWindowsSupported();
 
+// Frosted glass behind a translucent popup window.
+[[nodiscard]] bool GlassBackdropSupported();
+bool SetGlassBackdrop(
+	not_null<QWidget*> widget,
+	bool enabled,
+	bool dark,
+	int radius);
+
 void InitOnTopPanel(not_null<QWidget*> panel);
 void DeInitOnTopPanel(not_null<QWidget*> panel);
 void ReInitOnTopPanel(not_null<QWidget*> panel);

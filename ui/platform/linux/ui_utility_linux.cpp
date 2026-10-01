@@ -586,6 +586,18 @@ bool IsApplicationActive() {
 	return QApplication::activeWindow() != nullptr;
 }
 
+bool GlassBackdropSupported() {
+	return false;
+}
+
+bool SetGlassBackdrop(
+		not_null<QWidget*> widget,
+		bool enabled,
+		bool dark,
+		int radius) {
+	return false;
+}
+
 bool TranslucentWindowsSupported() {
 	if (::Platform::IsWayland()) {
 		return true;

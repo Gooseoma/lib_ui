@@ -956,8 +956,8 @@ defaultMenuSeparator: MenuSeparator {
 defaultMenu: Menu {
 	skip: 0px;
 
-	itemBg: windowBg;
-	itemBgOver: windowBgOver;
+	itemBg: menuGlassBg;
+	itemBgOver: menuGlassBgOver;
 	itemFg: windowFg;
 	itemFgOver: windowFgOver;
 	itemFgDisabled: menuFgDisabled;
@@ -1269,7 +1269,10 @@ defaultDropdownMenu: DropdownMenu {
 	wrap: InnerDropdown(defaultInnerDropdown) {
 		scrollPadding: margins(0px, 10px, 0px, 10px);
 	}
-	menu: defaultMenu;
+	menu: Menu(defaultMenu) {
+		itemBg: windowBg;
+		itemBgOver: windowBgOver;
+	}
 }
 
 defaultTooltip: Tooltip {
@@ -1713,7 +1716,10 @@ dropdownMenuWithIcons: DropdownMenu(defaultDropdownMenu) {
 	wrap: InnerDropdown(defaultInnerDropdown) {
 		scrollPadding: margins(0px, 6px, 0px, 6px);
 	}
-	menu: menuWithIcons;
+	menu: Menu(menuWithIcons) {
+		itemBg: windowBg;
+		itemBgOver: windowBgOver;
+	}
 }
 
 universalRippleAnimation: RippleAnimation(defaultRippleAnimation) {

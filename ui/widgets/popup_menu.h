@@ -94,6 +94,9 @@ public:
 	bool empty() const;
 
 	void deleteOnHide(bool del);
+
+	static void SetGlassEnabled(bool enabled);
+	[[nodiscard]] static bool GlassEnabled();
 	void popup(const QPoint &p);
 	[[nodiscard]] static QPoint ConstrainToParentScreen(
 		not_null<PopupMenu*> menu,
@@ -183,6 +186,8 @@ private:
 
 	using TriggeredSource = Menu::TriggeredSource;
 	void validateCompositingSupport();
+	[[nodiscard]] QMargins shadowExtend() const;
+	void updateGlassBackdrop();
 	void handleMenuResize();
 	void handleActivated(const Menu::CallbackData &data);
 	void handleTriggered(const Menu::CallbackData &data);
@@ -254,6 +259,7 @@ private:
 	rpl::variable<AnimatePhase> _animatePhase = AnimatePhase::Hidden;
 
 	bool _useTransparency = true;
+	bool _glass = false;
 	bool _hiding = false;
 	QPixmap _cache;
 	Animations::Simple _a_opacity;

@@ -13,12 +13,152 @@
 #include <QtCore/QAbstractNativeEventFilter>
 
 #include <windows.h>
+#include <dwmapi.h>
+#include <uxtheme.h>
 
 #include "base/event_filter.h"
 #include <QTimer>
+#include <cmath>
 #include <QScreen>
 
 namespace Ui::Platform {
+namespace {
+
+constexpr auto kDWMWA_USE_IMMERSIVE_DARK_MODE = DWORD(20);
+constexpr auto kDWMWA_WINDOW_CORNER_PREFERENCE = DWORD(33);
+constexpr auto kDWMWA_SYSTEMBACKDROP_TYPE = DWORD(38);
+constexpr auto kDWMWCP_ROUND = DWORD(2);
+constexpr auto kDWMSBT_NONE = DWORD(1);
+constexpr auto kDWMSBT_TRANSIENTWINDOW = DWORD(3);
+
+constexpr auto kBuildAcrylicAccent = 17134; // Windows 10 1803.
+constexpr auto kBuildSystemBackdrop = 22621; // Windows 11 22H2.
+
+constexpr auto kWcaAccentPolicy = 19;
+constexpr auto kAccentDisabled = 0;
+constexpr auto kAccentAcrylicBlurBehind = 4;
+
+struct AccentPolicy {
+	int state = 0;
+	int flags = 0;
+	uint32 gradientColor = 0;
+	int animationId = 0;
+};
+
+struct WindowCompositionAttributeData {
+	int attribute = 0;
+	void *data = nullptr;
+	ULONG size = 0;
+};
+
+using SetWindowCompositionAttributeFn = BOOL(WINAPI*)(
+	HWND,
+	WindowCompositionAttributeData*);
+
+[[nodiscard]] int WindowsBuild() {
+	using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+	static const auto result = [] {
+		const auto ntdll = GetModuleHandleW(L"ntdll.dll");
+		const auto function = ntdll
+			? reinterpret_cast<RtlGetVersionFn>(
+				GetProcAddress(ntdll, "RtlGetVersion"))
+			: nullptr;
+		auto info = OSVERSIONINFOW();
+		info.dwOSVersionInfoSize = sizeof(info);
+		return (function && (function(&info) == 0))
+			? int(info.dwBuildNumber)
+			: 0;
+	}();
+	return result;
+}
+
+[[nodiscard]] SetWindowCompositionAttributeFn FindSetWindowCompositionAttribute() {
+	static const auto result = [] {
+		const auto user32 = GetModuleHandleW(L"user32.dll");
+		return user32
+			? reinterpret_cast<SetWindowCompositionAttributeFn>(
+				GetProcAddress(user32, "SetWindowCompositionAttribute"))
+			: nullptr;
+	}();
+	return result;
+}
+
+} // namespace
+
+bool GlassBackdropSupported() {
+	const auto build = WindowsBuild();
+	return (build >= kBuildSystemBackdrop)
+		|| ((build >= kBuildAcrylicAccent)
+			&& (FindSetWindowCompositionAttribute() != nullptr));
+}
+
+bool SetGlassBackdrop(
+		not_null<QWidget*> widget,
+		bool enabled,
+		bool dark,
+		int radius) {
+	widget->createWinId();
+	const auto handle = reinterpret_cast<HWND>(widget->winId());
+	if (!handle) {
+		return false;
+	}
+	const auto build = WindowsBuild();
+	if (build >= kBuildSystemBackdrop) {
+		const auto darkMode = BOOL(dark ? TRUE : FALSE);
+		const auto corners = kDWMWCP_ROUND;
+		const auto backdrop = enabled
+			? kDWMSBT_TRANSIENTWINDOW
+			: kDWMSBT_NONE;
+		const auto margins = enabled
+			? MARGINS{ -1, -1, -1, -1 }
+			: MARGINS{ 0, 0, 0, 0 };
+		DwmSetWindowAttribute(
+			handle,
+			kDWMWA_USE_IMMERSIVE_DARK_MODE,
+			&darkMode,
+			sizeof(darkMode));
+		DwmSetWindowAttribute(
+			handle,
+			kDWMWA_WINDOW_CORNER_PREFERENCE,
+			&corners,
+			sizeof(corners));
+		DwmExtendFrameIntoClientArea(handle, &margins);
+		return SUCCEEDED(DwmSetWindowAttribute(
+			handle,
+			kDWMWA_SYSTEMBACKDROP_TYPE,
+			&backdrop,
+			sizeof(backdrop)));
+	}
+	const auto set = (build >= kBuildAcrylicAccent)
+		? FindSetWindowCompositionAttribute()
+		: nullptr;
+	if (!set) {
+		return false;
+	}
+	auto accent = AccentPolicy{
+		.state = enabled ? kAccentAcrylicBlurBehind : kAccentDisabled,
+		.gradientColor = dark ? 0x40202020U : 0x40F0F0F0U,
+	};
+	auto data = WindowCompositionAttributeData{
+		.attribute = kWcaAccentPolicy,
+		.data = &accent,
+		.size = sizeof(accent),
+	};
+	const auto ok = (set(handle, &data) != FALSE);
+	if (enabled) {
+		const auto ratio = widget->devicePixelRatioF();
+		const auto width = int(std::ceil(widget->width() * ratio));
+		const auto height = int(std::ceil(widget->height() * ratio));
+		const auto diameter = int(std::ceil(radius * 2 * ratio));
+		SetWindowRgn(
+			handle,
+			CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter),
+			TRUE);
+	} else {
+		SetWindowRgn(handle, nullptr, TRUE);
+	}
+	return ok;
+}
 
 bool IsApplicationActive() {
 	return QApplication::activeWindow() != nullptr;
